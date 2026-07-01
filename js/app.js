@@ -40,6 +40,17 @@ async function refreshProjects() {
   renderSidebar();
 }
 
+// ---- Activity log ---------------------------------------------------------
+// Every create/update/delete across the app writes one row here so nothing
+// is silently lost. Failures here are logged but never block the real CRUD.
+async function logActivity(action, sectionLabel, summary, context) {
+  try {
+    await DB.addItem(DB.logPath(), { action, section: sectionLabel, summary: summary || "", project: context || null });
+  } catch (err) {
+    console.error("Failed to write activity log", err);
+  }
+}
+
 function renderSidebar() {
   const activeCount = projectsCache.filter((p) => p.status === "Active").length;
   const planningCount = projectsCache.filter((p) => p.status === "Planning").length;
@@ -55,6 +66,7 @@ function renderSidebar() {
       <a href="#/expenses" class="${loc() === "expenses" ? "active" : ""}"><i class="ti ti-cash"></i> Expenses</a>
       <a href="#/journal" class="${loc() === "journal" ? "active" : ""}"><i class="ti ti-pencil"></i> Daily Journal</a>
       <a href="#/timeline" class="${loc() === "timeline" ? "active" : ""}"><i class="ti ti-git-commit"></i> Timeline</a>
+      <a href="#/log" class="${loc() === "log" ? "active" : ""}"><i class="ti ti-history"></i> Activity Log</a>
     </nav>
     <div class="nav-projects">
       <div class="nav-projects-head">Projects <span class="pill-counts"><span class="dot dot-green"></span>${activeCount} <span class="dot dot-amber"></span>${planningCount} <span class="dot dot-red"></span>${archivedCount}</span></div>
@@ -86,6 +98,7 @@ async function createProject() {
   const name = prompt("Project name?");
   if (!name) return;
   await DB.addItem(DB.projectsPath(), { name, description: "", stage: "Idea", priority: "Medium", revenue: 0, status: "Planning" });
+  await logActivity("Created", "Project", name);
   await refreshProjects();
   router();
 }
@@ -105,6 +118,7 @@ async function router() {
   if (parts[0] === "expenses") return viewExpenses();
   if (parts[0] === "journal") return viewJournal();
   if (parts[0] === "timeline") return viewTimeline(null);
+  if (parts[0] === "log") return viewLog();
   if (parts[0] === "project" && parts[1]) return viewProject(parts[1], parts[2] || "overview");
   return viewHome();
 }
@@ -154,7 +168,7 @@ async function viewProject(projectId, sectionKey) {
   if (sectionKey === "timeline") return renderTimelineTab(body, projectId, project.name);
   const section = PROJECT_SECTIONS.find((s) => s.key === sectionKey);
   if (!section) return;
-  return renderSectionTab(body, section, DB.sectionPath(projectId, section.key));
+  return renderSectionTab(body, section, DB.sectionPath(projectId, section.key), null, null, project.name);
 }
 
 function renderOverviewTab(body, projectId, project) {
@@ -171,18 +185,20 @@ function renderOverviewTab(body, projectId, project) {
     e.preventDefault();
     const data = readForm(OVERVIEW_FIELDS, e.target);
     await DB.updateItem(DB.projectsPath(), projectId, data);
+    await logActivity("Updated", "Project", data.name || project.name);
     await refreshProjects();
     router();
   });
   document.getElementById("delete-project").onclick = async () => {
     if (!confirm(`Delete "${project.name}" and all its data? This can't be undone.`)) return;
     await DB.removeItem(DB.projectsPath(), projectId);
+    await logActivity("Deleted", "Project", project.name);
     await refreshProjects();
     location.hash = "#/";
   };
 }
 
-async function renderSectionTab(body, section, path, extraPanel, onChange) {
+async function renderSectionTab(body, section, path, extraPanel, onChange, context) {
   body.innerHTML = `<div class="panel"><div class="loading">Loading…</div></div>`;
   const items = await DB.listAll(path, section.dateField || "createdAt");
   const listHtml = section.layout === "notes" ? renderNotesGrid(section.fields, items) : renderList(section.fields, items);
@@ -196,28 +212,33 @@ async function renderSectionTab(body, section, path, extraPanel, onChange) {
     <div class="${listWrapClass}">${listHtml}</div>
   `;
   wireConditionalFields(body.querySelector("#add-form"));
-  wireSectionEvents(body, section, path, items, extraPanel, onChange);
+  wireSectionEvents(body, section, path, items, extraPanel, onChange, context);
 }
 
-function wireSectionEvents(body, section, path, items, extraPanel, onChange) {
+function wireSectionEvents(body, section, path, items, extraPanel, onChange, context) {
   body.querySelector("#add-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const data = readForm(section.fields, e.target);
     await DB.addItem(path, data);
-    renderSectionTab(body, section, path, extraPanel, onChange);
+    await logActivity("Created", section.label, summarize(section, data), context);
+    renderSectionTab(body, section, path, extraPanel, onChange, context);
     if (onChange) onChange();
   });
   body.querySelectorAll("[data-toggle]").forEach((el) => {
     el.addEventListener("change", async () => {
+      const item = items.find((i) => i.id === el.dataset.toggle);
       await DB.updateItem(path, el.dataset.toggle, { [el.dataset.field]: el.checked });
+      await logActivity("Updated", section.label, item ? summarize(section, item) : "", context);
       if (onChange) onChange();
     });
   });
   body.querySelectorAll("[data-delete]").forEach((el) => {
     el.addEventListener("click", async () => {
       if (!confirm("Delete this item?")) return;
+      const item = items.find((i) => i.id === el.dataset.delete);
       await DB.removeItem(path, el.dataset.delete);
-      renderSectionTab(body, section, path, extraPanel, onChange);
+      await logActivity("Deleted", section.label, item ? summarize(section, item) : "", context);
+      renderSectionTab(body, section, path, extraPanel, onChange, context);
       if (onChange) onChange();
     });
   });
@@ -226,7 +247,8 @@ function wireSectionEvents(body, section, path, items, extraPanel, onChange) {
       const item = items.find((i) => i.id === el.dataset.edit);
       openEditDialog(section.fields, item, async (data) => {
         await DB.updateItem(path, item.id, data);
-        renderSectionTab(body, section, path, extraPanel, onChange);
+        await logActivity("Updated", section.label, summarize(section, { ...item, ...data }), context);
+        renderSectionTab(body, section, path, extraPanel, onChange, context);
         if (onChange) onChange();
       });
     });
@@ -292,6 +314,7 @@ async function viewJournal() {
     if (!body) return;
     const projectIds = Array.from(document.getElementById("j-projects").selectedOptions).map((o) => o.value);
     await DB.addItem(DB.journalPath(), { date, body, projectIds });
+    await logActivity("Created", "Journal", body.slice(0, 80));
     viewJournal();
   });
 }
@@ -580,6 +603,37 @@ async function renderTimelineTab(body, projectId, projectName) {
 function summarize(section, item) {
   const primary = section.fields.find((f) => f.type === "text") || section.fields[0];
   return item[primary.id] || section.label;
+}
+
+// ---- Activity Log (git-log style, records every create/update/delete) ----
+async function viewLog() {
+  const body = pageHeadEl("Activity Log");
+  body.innerHTML = `<div class="panel"><div class="loading">Loading…</div></div>`;
+  const items = await DB.listAll(DB.logPath(), "createdAt");
+  body.innerHTML = `
+    <div class="panel">
+      ${items.length ? `<div class="git-log">
+        ${items.map((e) => `
+          <div class="git-log-entry">
+            <div class="git-log-date">${formatLogTime(e.createdAt)}</div>
+            <div class="git-log-dot log-dot-${(e.action || "").toLowerCase()}"></div>
+            <div class="git-log-content">
+              <span class="tag log-tag-${(e.action || "").toLowerCase()}">${escapeHtml(e.action || "")}</span>
+              <span class="log-section">${escapeHtml(e.section || "")}</span>
+              ${e.summary ? ` — ${escapeHtml(e.summary)}` : ""}
+              ${e.project ? `<span class="muted"> · ${escapeHtml(e.project)}</span>` : ""}
+            </div>
+          </div>`).join("")}
+      </div>` : `<div class="empty">No activity yet. Every entry you create, edit, or delete anywhere in the app shows up here.</div>`}
+    </div>
+  `;
+}
+
+function formatLogTime(ts) {
+  if (!ts) return "";
+  return new Date(ts).toLocaleString("en-IN", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
 }
 
 // ---- Dashboard ------------------------------------------------------------

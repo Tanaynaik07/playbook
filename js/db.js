@@ -15,6 +15,7 @@ export const playbookPath = () => `${root()}/playbook`;
 export const journalPath = () => `${root()}/journal`;
 export const streaksPath = () => `${root()}/streaks`;
 export const expensesPath = () => `${root()}/expenses`;
+export const logPath = () => `${root()}/log`;
 
 // Generic CRUD ------------------------------------------------------------
 export async function listAll(path, orderField = null) {

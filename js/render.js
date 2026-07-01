@@ -93,8 +93,8 @@ export function renderList(fields, items, opts = {}) {
     return `<tr data-id="${item.id}">
       ${cells}
       <td class="row-actions">
-        <button class="icon-btn" data-edit="${item.id}" aria-label="Edit"><i class="ti ti-edit"></i></button>
-        <button class="icon-btn" data-delete="${item.id}" aria-label="Delete"><i class="ti ti-trash"></i></button>
+        <button class="icon-btn edit" data-edit="${item.id}" aria-label="Edit"><i class="ti ti-edit"></i></button>
+        <button class="icon-btn delete" data-delete="${item.id}" aria-label="Delete"><i class="ti ti-trash"></i></button>
       </td>
     </tr>`;
   }).join("");
@@ -113,8 +113,8 @@ export function renderNotesGrid(fields, items) {
   return `<div class="note-grid">${items.map((item) => `
     <div class="sticky-note" data-id="${item.id}">
       <div class="sticky-note-actions">
-        <button class="icon-btn" data-edit="${item.id}" aria-label="Edit"><i class="ti ti-edit"></i></button>
-        <button class="icon-btn" data-delete="${item.id}" aria-label="Delete"><i class="ti ti-trash"></i></button>
+        <button class="icon-btn edit" data-edit="${item.id}" aria-label="Edit"><i class="ti ti-edit"></i></button>
+        <button class="icon-btn delete" data-delete="${item.id}" aria-label="Delete"><i class="ti ti-trash"></i></button>
       </div>
       <div class="sticky-note-title">${escapeHtml(item[titleField.id] || "Untitled")}</div>
       ${bodyField && item[bodyField.id] ? `<div class="sticky-note-body">${escapeHtml(item[bodyField.id])}</div>` : ""}
