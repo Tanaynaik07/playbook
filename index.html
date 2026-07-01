@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Founder's Diary</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css">
+<link rel="stylesheet" href="css/style.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+</head>
+<body>
+
+<div id="auth-gate" class="auth-gate">
+  <div class="auth-card">
+    <div class="auth-brand"><i class="ti ti-notebook"></i></div>
+    <h1>Founder's Diary</h1>
+    <p class="muted">Your personal operating system for building things.</p>
+    <button id="login-btn" class="primary-btn"><i class="ti ti-brand-google"></i> Sign in with Google</button>
+  </div>
+</div>
+
+<div id="shell" class="shell hidden">
+  <aside id="sidebar" class="sidebar"></aside>
+  <div class="main-col">
+    <header class="topbar">
+      <button id="menu-toggle" class="icon-btn mobile-only" aria-label="Open menu"><i class="ti ti-menu-2"></i></button>
+      <div class="topbar-right">
+        <span id="user-badge"></span>
+        <button id="logout-btn" class="ghost-btn small">Sign out</button>
+      </div>
+    </header>
+    <main id="app" class="app-main"></main>
+  </div>
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
