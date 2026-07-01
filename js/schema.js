@@ -130,6 +130,30 @@ export const PROJECT_SECTIONS = [
   },
 ];
 
+// Groups sections into fewer top-level tabs so a project isn't 12 flat tabs
+// wide. Purely a nav/presentation grouping - the underlying Firestore paths
+// (users/{uid}/projects/{id}/sections/{key}/items) are untouched, so no data
+// migration is needed and nothing here is a breaking change. Any section key
+// not listed in a cluster just stays as its own standalone tab.
+export const PROJECT_CLUSTERS = [
+  {
+    key: "planning", label: "Planning", icon: "ti-route",
+    sections: ["goals", "deadlines", "roadmap", "tasks"],
+  },
+  {
+    key: "ideas", label: "Ideas & Research", icon: "ti-bulb",
+    sections: ["ideas", "research", "documents"],
+  },
+  {
+    key: "people", label: "People & Notes", icon: "ti-users",
+    sections: ["users", "notes"],
+  },
+  {
+    key: "retro", label: "Retrospective", icon: "ti-school",
+    sections: ["lessons", "decisions"],
+  },
+];
+
 // Global (not project-scoped) collections
 export const KNOWLEDGE_SCHEMA = {
   key: "knowledge", label: "Knowledge Vault", dateField: null, layout: "notes",

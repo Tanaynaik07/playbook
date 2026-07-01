@@ -89,6 +89,36 @@ input, textarea, select { font-family: inherit; }
 .tab.active { color: var(--accent-text); }
 .tab.active::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -2px; height: 2px; background: var(--accent); border-radius: 2px; }
 
+/* ---------- Cluster sub-tabs (Planning, Ideas & Research, etc.) ---------- */
+.subtabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.subtab { background: var(--bg-raised); border: 1px solid var(--border); color: var(--text-muted); padding: 6px 12px; border-radius: 20px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; transition: color 0.15s var(--ease), border-color 0.15s var(--ease), background 0.15s var(--ease); }
+.subtab i { font-size: 13px; }
+.subtab:hover { color: var(--text); border-color: var(--text-dim); }
+.subtab.active { background: var(--accent-dim); color: var(--accent-text); border-color: var(--accent); }
+
+/* ---------- Project summary (read-only Overview) ---------- */
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.summary-grid h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-dim); font-weight: 600; }
+.summary-focus { grid-column: span 2; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.summary-desc { margin: 0; font-size: 14px; color: var(--text-muted); line-height: 1.5; }
+.summary-meta { display: flex; flex-wrap: wrap; gap: 16px; font-size: 12.5px; color: var(--text-muted); }
+.summary-meta span { display: inline-flex; align-items: center; gap: 6px; }
+.summary-focus-actions { display: flex; gap: 8px; }
+.summary-footer { margin-top: 8px; }
+.summary-line { margin: 0 0 4px; font-size: 13px; }
+.small-empty { padding: 16px; font-size: 12px; }
+.summary-progress { display: flex; align-items: center; justify-content: space-between; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.summary-progress:last-child { border-bottom: none; }
+.summary-progress strong { font-family: var(--font-mono); color: var(--accent-text); }
+.summary-metrics-row { display: flex; gap: 20px; }
+.summary-metrics-row div { display: flex; flex-direction: column; gap: 4px; }
+.summary-metrics-row strong { font-family: var(--font-mono); font-size: 18px; color: var(--accent-text); }
+.summary-count-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 10px; }
+.summary-count-grid a { display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 8px; padding: 10px 6px; transition: border-color 0.15s var(--ease), transform 0.1s var(--ease); }
+.summary-count-grid a:hover { border-color: var(--accent); transform: translateY(-1px); }
+.summary-count-grid strong { font-family: var(--font-mono); font-size: 18px; color: var(--accent-text); }
+.summary-count-grid span { font-size: 11px; color: var(--text-dim); }
+
 /* ---------- Panels & forms ---------- */
 .panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; align-items: start; }
@@ -213,6 +243,8 @@ input, textarea, select { font-family: inherit; }
   .form-grid { grid-template-columns: 1fr; }
   .card-grid { grid-template-columns: 1fr; }
   .dash-grid { grid-template-columns: 1fr; }
+  .summary-grid { grid-template-columns: 1fr; }
+  .summary-focus { grid-column: span 1; }
   .note-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
   .journal-feed { grid-template-columns: 1fr 1fr; gap: 14px; }
   .data-table { display: block; overflow-x: auto; white-space: nowrap; }

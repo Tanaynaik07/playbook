@@ -5,7 +5,7 @@ import {
   wireConditionalFields, formatCurrency,
 } from "./render.js";
 import {
-  PROJECT_SECTIONS, KNOWLEDGE_SCHEMA, PLAYBOOK_SCHEMA, EXPENSES_SCHEMA, OVERVIEW_FIELDS, STAGES,
+  PROJECT_SECTIONS, PROJECT_CLUSTERS, KNOWLEDGE_SCHEMA, PLAYBOOK_SCHEMA, EXPENSES_SCHEMA, OVERVIEW_FIELDS, STAGES,
 } from "./schema.js";
 
 const app = document.getElementById("app");
@@ -119,7 +119,7 @@ async function router() {
   if (parts[0] === "journal") return viewJournal();
   if (parts[0] === "timeline") return viewTimeline(null);
   if (parts[0] === "log") return viewLog();
-  if (parts[0] === "project" && parts[1]) return viewProject(parts[1], parts[2] || "overview");
+  if (parts[0] === "project" && parts[1]) return viewProject(parts[1], parts[2] || "overview", parts[3] || null);
   return viewHome();
 }
 
@@ -143,20 +143,30 @@ function viewHome() {
 }
 
 // ---- Project workspace ------------------------------------------------------
-async function viewProject(projectId, sectionKey) {
+// Sections are grouped into clusters (see PROJECT_CLUSTERS in schema.js) so the
+// top-level tab bar stays short. A section not claimed by any cluster just
+// becomes its own standalone tab, unchanged. Firestore paths never change -
+// this is presentation-only grouping.
+async function viewProject(projectId, sectionKey, subKey) {
   const project = await DB.getOne(DB.projectsPath(), projectId);
   if (!project) { location.hash = "#/"; return; }
 
+  const clusteredKeys = new Set(PROJECT_CLUSTERS.flatMap((c) => c.sections));
+  const standaloneSections = PROJECT_SECTIONS.filter((s) => !clusteredKeys.has(s.key));
+
   const tabs = [{ key: "overview", label: "Overview", icon: "ti-home" }]
-    .concat(PROJECT_SECTIONS.map((s) => ({ key: s.key, label: s.label, icon: s.icon })))
+    .concat(PROJECT_CLUSTERS.map((c) => ({ key: c.key, label: c.label, icon: c.icon })))
+    .concat(standaloneSections.map((s) => ({ key: s.key, label: s.label, icon: s.icon })))
     .concat([{ key: "timeline", label: "Timeline", icon: "ti-git-commit" }]);
+
+  const activeTabKey = tabs.some((t) => t.key === sectionKey) ? sectionKey : "overview";
 
   app.innerHTML = `
     <div class="page-head">
       <h1>${escapeHtml(project.name)}</h1>
       <span class="stage-pill">${project.stage}</span>
     </div>
-    <div class="tabs">${tabs.map((t) => `<button class="tab ${t.key === sectionKey ? "active" : ""}" data-tab="${t.key}"><i class="ti ${t.icon}"></i> ${t.label}</button>`).join("")}</div>
+    <div class="tabs">${tabs.map((t) => `<button class="tab ${t.key === activeTabKey ? "active" : ""}" data-tab="${t.key}"><i class="ti ${t.icon}"></i> ${t.label}</button>`).join("")}</div>
     <div id="tab-body"></div>
   `;
   app.querySelectorAll(".tab").forEach((btn) => {
@@ -164,38 +174,166 @@ async function viewProject(projectId, sectionKey) {
   });
 
   const body = document.getElementById("tab-body");
-  if (sectionKey === "overview") return renderOverviewTab(body, projectId, project);
-  if (sectionKey === "timeline") return renderTimelineTab(body, projectId, project.name);
-  const section = PROJECT_SECTIONS.find((s) => s.key === sectionKey);
+  if (activeTabKey === "overview") return renderProjectSummary(body, projectId, project);
+  if (activeTabKey === "timeline") return renderTimelineTab(body, projectId, project.name);
+
+  const cluster = PROJECT_CLUSTERS.find((c) => c.key === activeTabKey);
+  if (cluster) {
+    const activeSub = subKey && cluster.sections.includes(subKey) ? subKey : cluster.sections[0];
+    return renderClusterTab(body, cluster, activeSub, projectId, project.name);
+  }
+
+  const section = PROJECT_SECTIONS.find((s) => s.key === activeTabKey);
   if (!section) return;
   return renderSectionTab(body, section, DB.sectionPath(projectId, section.key), null, null, project.name);
 }
 
-function renderOverviewTab(body, projectId, project) {
+// A cluster tab shows a secondary pill bar for its member sections, and
+// reuses renderSectionTab (same form/list/edit-dialog wiring as before) for
+// whichever one is active - nothing about how a single section works changed.
+function renderClusterTab(body, cluster, activeSubKey, projectId, projectName) {
+  const subSections = cluster.sections.map((key) => PROJECT_SECTIONS.find((s) => s.key === key)).filter(Boolean);
+  const activeSection = subSections.find((s) => s.key === activeSubKey) || subSections[0];
   body.innerHTML = `
-    <form id="overview-form" class="panel form-grid">
-      ${renderFormFields(OVERVIEW_FIELDS, project)}
-      <div class="form-actions">
-        <button type="submit" class="primary-btn">Save</button>
-        <button type="button" id="delete-project" class="danger-btn">Delete project</button>
-      </div>
-    </form>
+    <div class="subtabs">
+      ${subSections.map((s) => `<button class="subtab ${s.key === activeSection.key ? "active" : ""}" data-subtab="${s.key}"><i class="ti ${s.icon}"></i> ${s.label}</button>`).join("")}
+    </div>
+    <div id="cluster-body"></div>
   `;
-  document.getElementById("overview-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const data = readForm(OVERVIEW_FIELDS, e.target);
-    await DB.updateItem(DB.projectsPath(), projectId, data);
-    await logActivity("Updated", "Project", data.name || project.name);
-    await refreshProjects();
-    router();
+  body.querySelectorAll("[data-subtab]").forEach((btn) => {
+    btn.onclick = () => { location.hash = `#/project/${projectId}/${cluster.key}/${btn.dataset.subtab}`; };
   });
-  document.getElementById("delete-project").onclick = async () => {
-    if (!confirm(`Delete "${project.name}" and all its data? This can't be undone.`)) return;
-    await DB.removeItem(DB.projectsPath(), projectId);
-    await logActivity("Deleted", "Project", project.name);
-    await refreshProjects();
-    location.hash = "#/";
+  const clusterBody = document.getElementById("cluster-body");
+  return renderSectionTab(clusterBody, activeSection, DB.sectionPath(projectId, activeSection.key), null, null, projectName);
+}
+
+// ---- Project summary (read-only "just look at it" view) -------------------
+// This is the new Overview: a glance at every section with nothing to edit
+// or submit. Project detail editing moved to a dialog off the "Edit details"
+// button, same pattern as openEditDialog uses everywhere else.
+async function renderProjectSummary(body, projectId, project) {
+  body.innerHTML = `<div class="panel"><div class="loading">Loading…</div></div>`;
+
+  const [goals, deadlines, roadmap, tasks, ideas, experiments, research, documents, users, notes, lessons, decisions, metrics] = await Promise.all([
+    DB.listAll(DB.sectionPath(projectId, "goals")),
+    DB.listAll(DB.sectionPath(projectId, "deadlines"), "date"),
+    DB.listAll(DB.sectionPath(projectId, "roadmap")),
+    DB.listAll(DB.sectionPath(projectId, "tasks")),
+    DB.listAll(DB.sectionPath(projectId, "ideas")),
+    DB.listAll(DB.sectionPath(projectId, "experiments"), "date"),
+    DB.listAll(DB.sectionPath(projectId, "research")),
+    DB.listAll(DB.sectionPath(projectId, "documents")),
+    DB.listAll(DB.sectionPath(projectId, "users")),
+    DB.listAll(DB.sectionPath(projectId, "notes"), "date"),
+    DB.listAll(DB.sectionPath(projectId, "lessons"), "date"),
+    DB.listAll(DB.sectionPath(projectId, "decisions"), "date"),
+    DB.listAll(DB.sectionPath(projectId, "metrics"), "date"),
+  ]);
+
+  const todaysGoals = goals.filter((g) => g.type === "Today" && !g.done);
+  const openGoals = goals.filter((g) => !g.done).length;
+  const today = todayISO();
+  const nextDeadlines = deadlines.filter((d) => d.date && d.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3);
+  const roadmapDone = roadmap.filter((r) => r.status === "Done").length;
+  const tasksDone = tasks.filter((t) => t.done).length;
+  const latestExperiment = experiments[0] || null; // listAll(path, "date") already orders desc
+  const recentLessons = lessons.slice(0, 3);
+  const recentDecisions = decisions.slice(0, 3);
+  const latestMetric = metrics[0] || null;
+
+  body.innerHTML = `
+    <div class="summary-grid">
+      <div class="panel summary-focus">
+        <span class="stage-pill">${escapeHtml(project.stage || "Idea")}</span>
+        <p class="summary-desc">${escapeHtml(project.description || "No description yet.")}</p>
+        <div class="summary-meta">
+          <span><i class="ti ti-flag"></i> ${escapeHtml(project.priority || "Medium")} priority</span>
+          <span><i class="ti ti-currency-rupee"></i> ${escapeHtml(formatCurrency(project.revenue || 0))}</span>
+          <span><span class="status-dot status-${(project.status || "Active").toLowerCase()}"></span> ${escapeHtml(project.status || "Active")}</span>
+        </div>
+        <div class="summary-focus-actions">
+          <button id="edit-details-btn" type="button" class="ghost-btn small"><i class="ti ti-edit"></i> Edit details</button>
+          <button id="delete-project-btn" type="button" class="danger-btn"><i class="ti ti-trash"></i> Delete project</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h3><i class="ti ti-target"></i> Goals</h3>
+        ${todaysGoals.length ? `<ul class="check-list">${todaysGoals.map((g) => `<li>${escapeHtml(g.text)}</li>`).join("")}</ul>` : `<div class="empty small-empty">No "Today" goals set.</div>`}
+        <div class="summary-footer muted small">${openGoals} open overall</div>
+      </div>
+
+      <div class="panel">
+        <h3><i class="ti ti-calendar"></i> Next deadlines</h3>
+        ${nextDeadlines.length ? `<ul class="upcoming-list">${nextDeadlines.map((d) => `<li><span class="tag">${d.date}</span> ${escapeHtml(d.title)}</li>`).join("")}</ul>` : `<div class="empty small-empty">Nothing upcoming.</div>`}
+      </div>
+
+      <div class="panel">
+        <h3><i class="ti ti-route"></i> Roadmap &amp; tasks</h3>
+        <div class="summary-progress"><span>Roadmap</span><strong>${roadmapDone}/${roadmap.length}</strong></div>
+        <div class="summary-progress"><span>Tasks</span><strong>${tasksDone}/${tasks.length}</strong></div>
+      </div>
+
+      <div class="panel">
+        <h3><i class="ti ti-flask"></i> Latest experiment</h3>
+        ${latestExperiment ? `
+          <p class="summary-line"><strong>${escapeHtml(latestExperiment.title || "Untitled")}</strong> <span class="muted small">· ${latestExperiment.date || ""}</span></p>
+          <p class="muted small">${escapeHtml(latestExperiment.conclusion || latestExperiment.hypothesis || "No conclusion recorded yet.")}</p>
+        ` : `<div class="empty small-empty">No experiments logged yet.</div>`}
+      </div>
+
+      <div class="panel">
+        <h3><i class="ti ti-chart-bar"></i> Latest metrics</h3>
+        ${latestMetric ? `
+          <div class="summary-metrics-row">
+            <div><span class="muted small">Visitors</span><strong>${latestMetric.visitors ?? "-"}</strong></div>
+            <div><span class="muted small">Signups</span><strong>${latestMetric.signups ?? "-"}</strong></div>
+            <div><span class="muted small">Revenue</span><strong>${escapeHtml(formatCurrency(latestMetric.revenue || 0))}</strong></div>
+          </div>
+          <div class="muted small summary-footer">as of ${latestMetric.date || ""}</div>
+        ` : `<div class="empty small-empty">No metrics logged yet.</div>`}
+      </div>
+
+      <div class="panel">
+        <h3><i class="ti ti-school"></i> Recent lessons</h3>
+        ${recentLessons.length ? `<ul class="check-list">${recentLessons.map((l) => `<li>${escapeHtml(l.mistake || "")}</li>`).join("")}</ul>` : `<div class="empty small-empty">None logged yet.</div>`}
+      </div>
+
+      <div class="panel">
+        <h3><i class="ti ti-gavel"></i> Recent decisions</h3>
+        ${recentDecisions.length ? `<ul class="check-list">${recentDecisions.map((d) => `<li>${escapeHtml(d.decision || "")}</li>`).join("")}</ul>` : `<div class="empty small-empty">None logged yet.</div>`}
+      </div>
+
+      <div class="panel summary-counts">
+        <h3><i class="ti ti-list-details"></i> At a glance</h3>
+        <div class="summary-count-grid">
+          <a href="#/project/${projectId}/ideas/ideas"><strong>${ideas.length}</strong><span>Ideas</span></a>
+          <a href="#/project/${projectId}/ideas/research"><strong>${research.length}</strong><span>Research</span></a>
+          <a href="#/project/${projectId}/ideas/documents"><strong>${documents.length}</strong><span>Documents</span></a>
+          <a href="#/project/${projectId}/people/users"><strong>${users.length}</strong><span>Users</span></a>
+          <a href="#/project/${projectId}/people/notes"><strong>${notes.length}</strong><span>Notes</span></a>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById("edit-details-btn").onclick = () => {
+    openEditDialog(OVERVIEW_FIELDS, project, async (data) => {
+      await DB.updateItem(DB.projectsPath(), projectId, data);
+      await logActivity("Updated", "Project", data.name || project.name);
+      await refreshProjects();
+      router();
+    });
   };
+  document.getElementById("delete-project-btn").onclick = () => deleteProject(projectId, project);
+}
+
+async function deleteProject(projectId, project) {
+  if (!confirm(`Delete "${project.name}" and all its data? This can't be undone.`)) return;
+  await DB.removeItem(DB.projectsPath(), projectId);
+  await logActivity("Deleted", "Project", project.name);
+  await refreshProjects();
+  location.hash = "#/";
 }
 
 async function renderSectionTab(body, section, path, extraPanel, onChange, context) {
